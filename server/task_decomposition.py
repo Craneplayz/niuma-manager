@@ -95,6 +95,16 @@ def generate(task, conversation, ApiError):
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, 'AI 拆解配置不可用，请检查模型配置与密钥') from None
         try:
+            client = model_experiment.direct_client(options)
+            if client is not None:
+                from ddl_text.config import Settings
+                from task_planning.decomposition import load_instructions, validate_request
+                request = _request(task, conversation)
+                validate_request(request)
+                settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
+                                    timeout_seconds=20, max_retries=0)
+                raw = client.complete_json(load_instructions(),json.dumps(request,ensure_ascii=False),settings)
+                return validate_model_draft(json.loads(raw),request)
             with operations.span('model_call','decomposition.harness'):
                 return generate_decomposition(_request(task, conversation), options)
         except AgentError as error:
@@ -119,7 +129,7 @@ def route(handler, db, user_id, path, body, ApiError):
             raise ApiError(404, '任务不存在')
         if task.get('status') in ['completed', 'cancelled']:
             raise ApiError(400, '已完成或已取消的任务无需拆解')
-        result = model_experiment.run(db,user_id,'decomposition',generate,task,conversation,ApiError)
+        result, exposure = model_experiment.run(db,user_id,'decomposition',generate,task,conversation,ApiError)
         if result['status'] == 'ready_to_plan':
             request_id = secrets.token_hex(16)
             db.execute('INSERT INTO decomposition_proposals VALUES(?,?,?,?,?,0)',
@@ -129,6 +139,7 @@ def route(handler, db, user_id, path, body, ApiError):
         response.update(contract_version='0.1', taskId=task_id)
         if 'requestId' in result:
             response['requestId'] = result['requestId']
+        model_experiment.accept(db,exposure,result['status'])
         return handler.reply(200, response) or True
 
     if path == '/api/decomposition/apply' and handler.command == 'POST':

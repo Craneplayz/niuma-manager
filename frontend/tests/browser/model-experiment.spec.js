@@ -25,6 +25,7 @@ test('every second result opens feedback; both results can be rated independentl
  const prompt=page.getByRole('dialog',{name:'评价模型结果'});
  await expect(prompt).toBeVisible();
  await prompt.screenshot({path:info.outputPath('experiment-prompt.png')});
+ await expect(prompt.getByText(/第 2 条/)).toBeVisible();
  await expect(prompt.getByRole('textbox')).toHaveCount(0);
  await prompt.getByRole('button',{name:'2分',exact:true}).click();
  await expect(prompt).toHaveCount(0);

@@ -352,7 +352,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
         with diagnostics.capture(db,uid,request['request_id']) as attempt:
             if diagnostic_attempt is not None and attempt is not None:
                 diagnostic_attempt['id'] = attempt['attempt_id']
-            result, policy = model_experiment.run(db,uid,'teaching',recognize,request,ApiError,**attachments)
+            (result, policy), exposure = model_experiment.run(db,uid,'teaching',recognize,request,ApiError,**attachments)
             diagnostics.stamp(result)
             for outcome in result['record_results']:
                 failure = outcome.get('error') or {}
@@ -398,6 +398,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                 (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
             submission.controls.refresh_request(db,uid,request['request_id'])
+            model_experiment.accept(db,exposure,result['status'])
             operations.emit('save',(time.monotonic()-saving)*1000)
             for row in result['record_results']:
                 code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])

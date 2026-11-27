@@ -9,6 +9,8 @@ import sqlite3
 import time
 from contextvars import ContextVar
 
+from ddl_text.chat_client import ChatClient
+from ddl_text.codex_client import validate_endpoint, validate_provider_endpoint
 from server import operations
 
 _current = ContextVar('model_experiment', default=None)
@@ -32,8 +34,11 @@ def assignment(uid):
     endpoint = os.environ.get('NIUMA_EXPERIMENT_B_ENDPOINT', '')
     if (not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', name)
             or model not in B_MODELS or endpoint not in ENDPOINTS
+            or not os.environ.get('NIUMA_EXPERIMENT_B_KEY', '').strip()
             or uid not in os.environ.get('NIUMA_EXPERIMENT_ACCOUNTS', '').split()):
         return None
+    validate_endpoint(endpoint)
+    validate_provider_endpoint('qiniu', endpoint)
     identity = actor(uid, name)
     if identity:
         return dict(experiment=name, actor=identity, arm='A' if int(identity[-1], 16) % 2 == 0 else 'B',
@@ -44,9 +49,15 @@ def options(base):
     run = _current.get()
     if not run or base['provider'] != 'qiniu' or not base['key'].strip():
         return base
-    selected = dict(base, **run['alternative']) if run['arm'] == 'B' else base
+    selected = dict(base, **run['alternative'], key=os.environ['NIUMA_EXPERIMENT_B_KEY']) if run['arm'] == 'B' else base
     run['model'] = selected['model']
     return selected
+
+
+def direct_client(options):
+    if not (_current.get() or {}).get('model'):
+        return None
+    return operations.observe_chat(ChatClient(options['key']))
 
 
 def path_for(db):
@@ -57,7 +68,7 @@ def initialize(db):
     db.execute('''CREATE TABLE IF NOT EXISTS model_exposures (
         id TEXT PRIMARY KEY, experiment TEXT NOT NULL, actor TEXT NOT NULL, arm TEXT NOT NULL,
         module TEXT NOT NULL, model TEXT NOT NULL, at REAL NOT NULL, duration_ms INTEGER NOT NULL,
-        status TEXT NOT NULL, calls INTEGER NOT NULL, tokens INTEGER, score INTEGER CHECK (score BETWEEN 1 AND 5),
+        status TEXT NOT NULL, calls INTEGER NOT NULL, tokens INTEGER, known_calls INTEGER NOT NULL, score INTEGER CHECK (score BETWEEN 1 AND 5),
         ordinal INTEGER, prompted INTEGER NOT NULL DEFAULT 0)''')
     db.execute('CREATE INDEX IF NOT EXISTS model_exposure_actor ON model_exposures(experiment,actor,at)')
 
@@ -73,21 +84,19 @@ def persist(path, entry, status, started):
                 WHERE request_id=? AND stage='model_call' ''', (entry['id'],)).fetchall()
             markers = db.execute('''SELECT count(*) FROM events
                 WHERE request_id=? AND stage='model_call' ''', (entry['id'],)).fetchone()[0]
-            calls = len(supplied) or markers
+            calls = max(len(supplied), markers)
             if not calls:
                 return
-            tokens = sum(row[0] for row in supplied) if supplied and all(row[0] is not None for row in supplied) else None
+            known = [row[0] for row in supplied if row[0] is not None]
             now = time.time()
-            ordinal = None
-            if status in GENERATED:
-                ordinal = db.execute('''SELECT coalesce(max(ordinal),0)+1 FROM model_exposures
-                    WHERE experiment=? AND actor=?''',(entry['experiment'],entry['actor'])).fetchone()[0]
             db.execute('DELETE FROM model_exposures WHERE at<?', (now-RETENTION,))
             db.execute('''INSERT INTO model_exposures
-                (id,experiment,actor,arm,module,model,at,duration_ms,status,calls,tokens,ordinal)
+                (id,experiment,actor,arm,module,model,at,duration_ms,status,calls,tokens,known_calls)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
                        (entry['id'], entry['experiment'], entry['actor'], entry['arm'], entry['module'],
-                        entry['model'], now, round((time.monotonic()-started)*1000), status, calls, tokens, ordinal))
+                        entry['model'], now, round((time.monotonic()-started)*1000), status, calls,
+                        sum(known) if known else None, len(known)))
+            return entry['id']
     except (OSError, sqlite3.Error):
         logging.getLogger(__name__).warning('model_experiment_write_failed')
 
@@ -96,20 +105,36 @@ def run(db, uid, module, function, *args, **kwargs):
     entry = assignment(uid)
     path = path_for(db) if entry and module in MODULES else None
     if not path:
-        return function(*args, **kwargs)
+        return function(*args, **kwargs), None
     entry.update(id=secrets.token_hex(16), module=module)
     token = _current.set(entry)
     started = time.monotonic()
-    status = 'failed'
     try:
         with operations.scope(path, request_id=entry['id']):
             result = function(*args, **kwargs)
-        output = result[0] if isinstance(result, tuple) else result
-        status = output.get('status', 'success') if isinstance(output, dict) else 'success'
-        return result
+    except Exception:
+        persist(path, entry, 'failed', started)
+        raise
     finally:
         _current.reset(token)
-        persist(path, entry, status, started)
+    return result, persist(path, entry, 'rejected', started)
+
+
+def accept(db, receipt, status):
+    if receipt and status in GENERATED:
+        db.on_commit(_accept, path_for(db), receipt, status)
+
+
+def _accept(path, receipt, status):
+    try:
+        with operations.connection(path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('''UPDATE model_exposures AS exposure SET status=?, ordinal=(
+                SELECT coalesce(max(ordinal),0)+1 FROM model_exposures
+                WHERE experiment=exposure.experiment AND actor=exposure.actor)
+                WHERE id=? AND ordinal IS NULL''', (status,receipt))
+    except (OSError, sqlite3.Error):
+        logging.getLogger(__name__).warning('model_experiment_accept_failed')
 
 
 def route(handler, business_db, uid, path, body, error):
@@ -124,7 +149,7 @@ def route(handler, business_db, uid, path, body, error):
             rows = db.execute('''SELECT experiment,arm,module,model,count(*) AS attempts,
                 count(DISTINCT actor) AS accounts, count(ordinal) AS generated,
                 sum(status IN ('success','no_tasks','ready_to_plan','no_split','needs_clarification')) AS usable,
-                sum(calls) AS calls, sum(tokens) AS tokens, count(tokens) AS measuredTokens,
+                sum(calls) AS calls, sum(tokens) AS tokens, sum(known_calls) AS measuredCalls, sum(calls-known_calls) AS missingCalls,
                 round(avg(duration_ms)) AS meanMs, count(score) AS feedback,
                 round(avg(score),2) AS meanScore,
                 sum(score=1) AS score1, sum(score=2) AS score2, sum(score=3) AS score3,
@@ -145,7 +170,7 @@ def route(handler, business_db, uid, path, body, error):
             return handler.reply(200, {'results':[dict(row) for row in rows[:20]],'next':rows[19]['ordinal'] if len(rows)>20 else None,'promptDue':bool(prompt)}) or True
         if path == '/api/usage/model-experiment/prompt' and handler.command == 'POST':
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('''SELECT id,module,status,at FROM model_exposures WHERE experiment=? AND actor=? AND at>=?
+            row = db.execute('''SELECT id,module,status,at,ordinal FROM model_exposures WHERE experiment=? AND actor=? AND at>=?
                 AND ordinal%2=0 AND prompted=0 AND score IS NULL ORDER BY ordinal LIMIT 1''', (name,identity,cutoff)).fetchone()
             if row:
                 db.execute('UPDATE model_exposures SET prompted=1 WHERE id=?', (row['id'],))

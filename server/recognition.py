@@ -242,13 +242,15 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
         completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
         extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
     capture = diagnostics.capture(db,uid,request['request_id']) if not demo and extraction_request['records'] else nullcontext(None)
+    exposure = None
     with capture as attempt:
         if not demo:
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
                 _EXECUTION.policy = None
-                result=diagnostics.stamp(model_experiment.run(db,uid,'text',recognize,extraction_request,ApiError,**(dict(on_admitted=on_admitted) if on_admitted is not None else {})))
+                result, exposure = model_experiment.run(db,uid,'text',recognize,extraction_request,ApiError,**(dict(on_admitted=on_admitted) if on_admitted is not None else {}))
+                result=diagnostics.stamp(result)
         policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
         try:
             result=validate_result(extraction_request,result)
@@ -278,12 +280,14 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
             if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
             # Another request may have finished during the model call. Never overwrite it.
             if previous is not None and json.loads(row['result'])==previous:
+                model_experiment.accept(db,exposure,result['status'])
                 db.execute('UPDATE recognition_batches SET result=?,attempt_id=? WHERE user_id=? AND request_id=?',(json.dumps(result),attempt_id,uid,request['request_id']))
                 for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
                 for record in extraction_request['records']:
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
+            model_experiment.accept(db,exposure,result['status'])
             db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo),attempt_id))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))

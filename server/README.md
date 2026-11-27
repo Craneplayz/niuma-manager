@@ -396,6 +396,6 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 ## 在线模型实验
 
-设置 `NIUMA_EXPERIMENT_ID`、至少 32 字符的私有 `NIUMA_EXPERIMENT_SALT`、自愿参加的账号 ID 白名单 `NIUMA_EXPERIMENT_ACCOUNTS`（空格分隔），以及 `NIUMA_EXPERIMENT_B_MODEL=google/gemini-3.1-flash-lite`、`NIUMA_EXPERIMENT_B_ENDPOINT=https://api.modelink.ai/v1`。A 使用环境现有直连模型，B 使用配置的七牛版本；分组由实验 ID 与账号的 HMAC 固定。同一轮实验保持盐、模型、提示词和配置不变；移除实验 ID 或白名单并重启即恢复基线。默认关闭。
+设置 `NIUMA_EXPERIMENT_ID`、至少 32 字符的私有 `NIUMA_EXPERIMENT_SALT`、自愿参加的账号 ID 白名单 `NIUMA_EXPERIMENT_ACCOUNTS`（空格分隔），以及 `NIUMA_EXPERIMENT_B_MODEL=google/gemini-3.1-flash-lite`、`NIUMA_EXPERIMENT_B_ENDPOINT=https://api.modelink.ai/v1`，并注入专用凭据 `NIUMA_EXPERIMENT_B_KEY`（容器通过现有模型 env_file 注入，配置变更后重建 API）。A 使用环境现有直连模型，B 仅使用其专用凭据；缺少 B 的凭据时本轮关闭并沿用原配置；分组由实验 ID 与账号的 HMAC 固定。同一轮实验保持盐、模型、提示词和配置不变；移除实验 ID 或白名单并重启即恢复基线。默认关闭。
 
-本轮覆盖直接调用七牛的文本识别、教学网识别（含其课程旁证流程）、任务拆解和工时估计。外部桥接、附件导入、缓存、确定性流程和未观察到模型调用的结果不进入实验。打开「账号与数据 → 使用反馈 → 评价已有模型结果」可评价最近 30 天的参与结果；每第二条生成结果至多自动弹窗一次，跳过后可手动补评。管理员在使用数据中展开「在线模型实验」查看模型、组、尝试、生成结果、可用数、耗时、已知 Token 和 1–5 分评分分布；无评分与缺测分别保留。只存聚合所需元数据和数值评分，不复制任务原文或响应。
+本轮覆盖直接调用七牛的文本识别、教学网识别（含其课程旁证流程）、任务拆解和工时估计。外部桥接、附件导入、缓存、确定性流程和未观察到模型调用的结果不进入实验。打开「账号与数据 → 使用反馈 → 评价已有模型结果」可评价最近 30 天的参与结果；每第二条生成结果至多自动弹窗一次，跳过后可手动补评。管理员在使用数据中展开「在线模型实验」查看模型、组、尝试、生成结果、可用数、耗时、已知 Token 小计、观测调用覆盖和 1–5 分评分分布（每条以最后一次评分为准）；无评分与缺测分别保留。只存聚合所需元数据和数值评分，不复制任务原文或响应。

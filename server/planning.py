@@ -70,6 +70,13 @@ def plan(request, ApiError):
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, '规划配置不可用，请检查当前环境的模型配置文件或环境变量中的七牛模型配置与密钥') from None
         try:
+            client = model_experiment.direct_client(options)
+            if client is not None:
+                from ddl_text.config import Settings
+                settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
+                                    timeout_seconds=20, max_retries=0)
+                raw = client.complete_json(planning_harness.INSTRUCTIONS, json.dumps(request,ensure_ascii=False),settings)
+                return planning_harness.build_proposal(request,json.loads(raw)['estimates'])
             with operations.span('model_call','planning.harness'):
                 return planning_harness.generate(request, options)
         except Exception:

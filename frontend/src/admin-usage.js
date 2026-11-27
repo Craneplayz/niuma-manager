@@ -28,9 +28,9 @@ async function load(start='',end=''){
    try{
     const {rows}=await request('/api/admin/model-experiment');
     const cells=row=>[row.experiment,row.arm,row.module,row.model,row.accounts,row.attempts,row.generated,row.usable,row.meanMs,
-     row.tokens??'未知',row.measuredTokens+'/'+row.attempts,row.feedback+'/'+row.generated,row.meanScore??'—',
+     row.tokens??'未知',row.measuredCalls+'/'+row.calls,row.feedback+'/'+row.generated,row.meanScore??'—',
      [1,2,3,4,5].map(score=>row['score'+score]??0).join(' / ')];
-    status.innerHTML=rows.length?'<div class="table-wrap"><table><thead><tr>'+['实验','组','模块','实际模型','账号数','有调用的结果','可评价结果','契约可用','平均毫秒','已知 Token','Token 已测/总数','已评分/可评价','平均分','1 / 2 / 3 / 4 / 5 分票数'].map(label=>'<th scope="col">'+label+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+cells(row).map(value=>'<td>'+escape(value)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>':'暂无实验数据。';
+    status.innerHTML=rows.length?'<div class="table-wrap"><table><thead><tr>'+['实验','组','模块','实际模型','账号数','有调用的结果','可评价结果','契约可用','平均毫秒','已知 Token 小计','Token 已测/总数','已评分/可评价','平均分','1 / 2 / 3 / 4 / 5 分票数'].map(label=>'<th scope="col">'+label+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+cells(row).map(value=>'<td>'+escape(value)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>':'暂无实验数据。';
    }catch{status.textContent='暂时无法读取实验结果，重新展开可重试。';}
   });
   document.querySelector('#range').onsubmit=event=>{event.preventDefault();const f=new FormData(event.target);void load(f.get('start'),f.get('end'));};

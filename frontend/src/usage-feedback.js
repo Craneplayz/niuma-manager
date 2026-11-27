@@ -10,7 +10,7 @@ const sameAccount=([epoch,uid])=>accountVersion()===epoch&&session.user?.id===ui
 function evaluationForm(result, account, afterSave) {
  const form=document.createElement('form');
  const label=document.createElement('p');
- label.textContent=`${modules[result.module]||'模型结果'} · ${new Date(result.at*1000).toLocaleString('zh-CN')}`;
+ label.textContent=`${modules[result.module]||'模型结果'} · 第 ${result.ordinal} 条 · ${new Date(result.at*1000).toLocaleString('zh-CN')}`;
  form.append(label);
  form.insertAdjacentHTML('beforeend', '<div class="usage-rating-options" role="group" aria-label="给结果打 1 至 5 分">'+[1,2,3,4,5].map(score=>`<button class="btn" type="submit" value="${score}" aria-label="${score}分" aria-pressed="${score===result.score}">${score}</button>`).join('')+'</div><span role="status"></span>');
  const status=form.querySelector('[role=status]');
